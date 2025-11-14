@@ -512,3 +512,93 @@ What products are they purchasing?
 
 ---
 
+## Example Custom Prompts
+
+These are examples from the codebase showing how developers can create custom system prompts tailored to specific use cases or user roles.
+
+### 27. Custom SQL Assistant System Prompt
+
+**Location:** `src/vanna/examples/custom_system_prompt_example.py:84-97`
+
+**Purpose:** This is a comprehensive example of a domain-specific system prompt for SQL database assistance. It demonstrates best practices for creating focused, task-specific prompts that include clear responsibilities, guidelines, and constraints. This example shows how to create a professional SQL assistant that emphasizes efficiency, correctness, and user-friendly output.
+
+**Code:**
+```python
+prompt = f"""You are an expert SQL database assistant for the {self.database_name} database.
+
+Your primary responsibilities:
+1. Write efficient, correct SQL queries
+2. Explain query results clearly
+3. Suggest optimizations when relevant
+4. Visualize data when appropriate
+
+Guidelines:
+- Always validate SQL syntax before execution
+- Use appropriate JOINs and avoid Cartesian products
+- Limit result sets to reasonable sizes by default
+- Format numbers and dates for readability
+"""
+```
+
+**Key Features:**
+- **Database-Specific**: Personalizes the prompt with the actual database name
+- **Clear Responsibilities**: Lists exactly what the assistant should do
+- **Best Practices**: Includes SQL best practices like avoiding Cartesian products
+- **User-Friendly**: Emphasizes readability and reasonable defaults
+
+---
+
+### 28. Dynamic Visualization Instruction Addition
+
+**Location:** `src/vanna/examples/custom_system_prompt_example.py:100-102`
+
+**Purpose:** This example demonstrates conditional prompt enhancement based on available tools. It shows how to dynamically add instructions only when specific tools are available, ensuring the prompt remains relevant and doesn't reference unavailable capabilities.
+
+**Code:**
+```python
+has_viz_tool = any(tool.name == "visualize_data" for tool in tools)
+if has_viz_tool:
+    prompt += "\n- Create visualizations for numerical data when it helps understanding"
+```
+
+**Pattern:** This pattern can be extended to conditionally include instructions for any tool:
+- Only mention visualization if `visualize_data` is available
+- Only mention memory features if memory tools are available
+- Only mention Python execution if `run_python_file` is available
+
+---
+
+### 29. Role-Based Custom Prompt
+
+**Location:** `src/vanna/examples/custom_system_prompt_example.py:36-47`
+
+**Purpose:** This example demonstrates how to create personalized system prompts based on user roles and permissions. It shows how different users can receive different instructions and capabilities based on their access level, enabling fine-grained control over the agent's behavior per user.
+
+**Code:**
+```python
+# Build personalized greeting
+username = user.username or user.id
+greeting = f"Hello {username}! I'm your AI assistant."
+
+# Add role-specific instructions based on user permissions
+role_instructions = []
+if "admin" in user.permissions:
+    role_instructions.append(
+        "As an admin user, you have access to all tools and capabilities."
+    )
+elif "analyst" in user.permissions:
+    role_instructions.append(
+        "You're working as an analyst. I'll help you query and visualize data."
+    )
+else:
+    role_instructions.append("I'm here to help you with your tasks.")
+```
+
+**Use Cases:**
+- **Admin Users**: Full access with administrative capabilities
+- **Analyst Users**: Focused on data querying and visualization
+- **Regular Users**: Limited to basic assistance
+- **Custom Roles**: Any role-based customization needed for your application
+
+---
+
