@@ -117,3 +117,39 @@ f"You are Vanna, an AI data analyst assistant created to help users with data an
 
 ---
 
+## Context Enhancement Prompts
+
+### 6. RAG-Based Context Injection Header
+
+**Location:** `src/vanna/core/enhancer/default.py:84-85`
+
+**Purpose:** This prompt header introduces a section of dynamically retrieved domain knowledge and context from the agent's memory system. It uses RAG (Retrieval-Augmented Generation) to search for relevant text memories based on the user's current message and injects them into the system prompt. This allows the agent to leverage previously saved domain knowledge, schema details, and best practices when responding to user queries.
+
+**Code:**
+```python
+"\n\n## Relevant Context from Memory\n\n"
+"The following domain knowledge and context from prior interactions may be relevant:\n\n"
+```
+
+**Usage Pattern:**
+The enhancer searches for up to 5 relevant text memories using vector similarity search, then formats each memory as a bullet point and appends them to the system prompt:
+
+```python
+for result in memories:
+    memory = result.memory
+    examples_section += f"• {memory.content}\n"
+```
+
+**Example Output:**
+```
+## Relevant Context from Memory
+
+The following domain knowledge and context from prior interactions may be relevant:
+
+• The status column uses 1 for active, 0 for inactive
+• MRR means Monthly Recurring Revenue in our schema
+• Always exclude test accounts where email contains 'test'
+```
+
+---
+
