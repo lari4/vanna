@@ -359,3 +359,29 @@ packages: List[str] = Field(
 
 ---
 
+### 20. File System Tool Descriptions
+
+**Location:** `src/vanna/tools/file_system.py:367, 467, 531, 595, 688`
+
+**Purpose:** These descriptions provide basic functionality descriptions for file system operations that the agent can perform. They are simple and straightforward, clearly communicating the available file operations.
+
+**Code:**
+```python
+# Search files tool
+"Search for files by name or content"
+
+# List files tool
+"List files in a directory"
+
+# Read file tool
+"Read the contents of a file"
+
+# Write file tool
+"Write content to a file"
+
+# Edit file tool
+"Modify specific lines within a file"
+```
+
+---
+
