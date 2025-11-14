@@ -539,3 +539,247 @@ Question Text
 
 ---
 
+## Legacy v1.x SQL Generation Pipeline
+
+This pipeline represents the Vanna v1.x architecture where the LLM directly generates SQL code and Plotly visualization code, without using the v2.0 tool-based system.
+
+### Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         USER ASKS QUESTION                          │
+│                     "Show top 5 customers"                          │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 1. RETRIEVE TRAINING DATA (RAG)                     │
+│                                                                     │
+│  Component: VannaBase                                              │
+│  Process:                                                          │
+│    a) Search for similar questions in training set                 │
+│    b) Retrieve relevant DDL (table schemas)                        │
+│    c) Retrieve relevant documentation                              │
+│    d) Retrieve similar question-SQL pairs                          │
+│                                                                     │
+│  Example Retrieved Data:                                           │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │ DDL:                                                        │  │
+│  │   CREATE TABLE customers (                                  │  │
+│  │     id INT, name VARCHAR, revenue DECIMAL                   │  │
+│  │   );                                                        │  │
+│  │                                                             │  │
+│  │ Documentation:                                              │  │
+│  │   "The customers table tracks all client accounts"         │  │
+│  │                                                             │  │
+│  │ Similar Q&A:                                                │  │
+│  │   Q: "What are the best customers?"                         │  │
+│  │   SQL: "SELECT * FROM customers ORDER BY revenue DESC..."   │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 2. BUILD SQL GENERATION PROMPT                      │
+│                                                                     │
+│  Component: VannaBase.get_sql_prompt()                             │
+│  Prompts Used:                                                     │
+│    - Legacy SQL system prompt (Prompt #21)                         │
+│    - Legacy SQL response guidelines (Prompt #22)                   │
+│                                                                     │
+│  Prompt Structure:                                                 │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │ SYSTEM:                                                     │  │
+│  │ You are a PostgreSQL expert. Please help to generate a SQL │  │
+│  │ query to answer the question. Your response should ONLY be │  │
+│  │ based on the given context...                               │  │
+│  │                                                             │  │
+│  │ === DDL ===                                                 │  │
+│  │ [Retrieved DDL inserted here]                               │  │
+│  │                                                             │  │
+│  │ === Documentation ===                                       │  │
+│  │ [Retrieved docs inserted here]                              │  │
+│  │                                                             │  │
+│  │ === Response Guidelines ===                                 │  │
+│  │ 1. If context is sufficient, generate valid SQL...         │  │
+│  │ 2. If need column values, generate intermediate SQL...      │  │
+│  │ 3. If insufficient context, explain why...                  │  │
+│  │ [Full guidelines from Prompt #22]                           │  │
+│  │                                                             │  │
+│  │ USER: What are the best customers?                          │  │
+│  │ ASSISTANT: SELECT * FROM customers ORDER BY revenue DESC... │  │
+│  │                                                             │  │
+│  │ USER: Show top 5 customers                                  │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 3. LLM GENERATES SQL                                │
+│                                                                     │
+│  Component: LLM Service (submit_prompt)                            │
+│  Input: Prompt from step 2                                         │
+│  Output: Raw SQL query (potentially with markdown formatting)      │
+│                                                                     │
+│  Example Response:                                                 │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │ ```sql                                                      │  │
+│  │ SELECT name, revenue                                        │  │
+│  │ FROM customers                                              │  │
+│  │ ORDER BY revenue DESC                                       │  │
+│  │ LIMIT 5                                                     │  │
+│  │ ```                                                         │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 4. EXTRACT & EXECUTE SQL                            │
+│                                                                     │
+│  Component: VannaBase                                              │
+│  Process:                                                          │
+│    a) Extract SQL from markdown (if wrapped in ```)               │
+│    b) Check for "intermediate_sql" comment                         │
+│    c) Execute query via database connection                        │
+│    d) Convert results to DataFrame                                 │
+│                                                                     │
+│  Intermediate SQL Workflow:                                        │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │ If LLM responds with:                                       │  │
+│  │   -- intermediate_sql                                       │  │
+│  │   SELECT DISTINCT status FROM customers                     │  │
+│  │                                                             │  │
+│  │ Then:                                                       │  │
+│  │   1. Execute intermediate query                             │  │
+│  │   2. Add results to context                                 │  │
+│  │   3. Call LLM again for final SQL                           │  │
+│  │   4. Execute final SQL                                      │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 5. BUILD PLOTLY GENERATION PROMPT                   │
+│                                                                     │
+│  Component: VannaBase.generate_plotly_code()                       │
+│  Prompts Used:                                                     │
+│    - Plotly system prompt (Prompt #23)                             │
+│    - Plotly user prompt (Prompt #24)                               │
+│                                                                     │
+│  Prompt Structure:                                                 │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │ SYSTEM:                                                     │  │
+│  │ The following is a pandas DataFrame that contains the      │  │
+│  │ results of the query that answers the question: "Show top  │  │
+│  │ 5 customers"                                                │  │
+│  │                                                             │  │
+│  │ The DataFrame was produced using this query:                │  │
+│  │ SELECT name, revenue FROM customers ORDER BY revenue DESC  │  │
+│  │ LIMIT 5                                                     │  │
+│  │                                                             │  │
+│  │ DataFrame metadata:                                         │  │
+│  │ - Columns: ['name', 'revenue']                              │  │
+│  │ - Shape: (5, 2)                                             │  │
+│  │ - Types: name (object), revenue (float64)                   │  │
+│  │                                                             │  │
+│  │ USER:                                                       │  │
+│  │ Can you generate the Python plotly code to chart the       │  │
+│  │ results of the dataframe? Assume the data is in a pandas   │  │
+│  │ dataframe called 'df'. If there is only one value, use     │  │
+│  │ an Indicator. Respond with only Python code. Do not answer │  │
+│  │ with any explanations -- just the code.                    │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 6. LLM GENERATES PLOTLY CODE                        │
+│                                                                     │
+│  Input: Prompt from step 5                                         │
+│  Output: Python code with Plotly visualization                     │
+│                                                                     │
+│  Example Response:                                                 │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │ ```python                                                   │  │
+│  │ import plotly.express as px                                 │  │
+│  │                                                             │  │
+│  │ fig = px.bar(df, x='name', y='revenue',                     │  │
+│  │              title='Top 5 Customers by Revenue')            │  │
+│  │ fig.show()                                                  │  │
+│  │ ```                                                         │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 7. EXECUTE PLOTLY CODE                              │
+│                                                                     │
+│  Component: VannaBase                                              │
+│  Process:                                                          │
+│    a) Extract Python code from markdown                            │
+│    b) Remove fig.show() call (sanitize)                            │
+│    c) Execute code in safe environment with df variable            │
+│    d) Return Plotly figure object                                  │
+│                                                                     │
+│  Output: Plotly Figure object ready for display                    │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Differences from v2.0
+
+| Aspect | v1.x Legacy | v2.0 Modern |
+|--------|-------------|-------------|
+| **Architecture** | Direct LLM code generation | Tool-based execution |
+| **SQL Generation** | LLM writes SQL as text | LLM calls `run_sql` tool |
+| **Visualization** | LLM writes Plotly Python code | Heuristic chart selection |
+| **Safety** | Code execution risk | Sandboxed tool execution |
+| **Flexibility** | Harder to add new capabilities | Easy to add new tools |
+| **Debugging** | Harder (code in strings) | Easier (structured tool calls) |
+| **Error Handling** | Manual string parsing | Structured ToolResult |
+| **Context** | Manual RAG in prompt | Automatic context enrichment |
+| **Memory** | No structured memory | Built-in memory tools |
+
+### Prompts Used in Legacy Pipeline
+
+| Stage | Prompt | Purpose |
+|-------|--------|---------|
+| SQL Generation | Prompt #21 | SQL expert system prompt |
+| SQL Generation | Prompt #22 | Detailed response guidelines |
+| Plotly Generation | Prompt #23 | DataFrame context for visualization |
+| Plotly Generation | Prompt #24 | Code generation instructions |
+
+### RAG in v1.x vs v2.0
+
+**v1.x Approach:**
+```python
+# Manual RAG before LLM call
+ddl_list = retrieve_ddl(question)
+docs = retrieve_documentation(question)
+examples = retrieve_similar_questions(question)
+
+# Insert into prompt manually
+prompt = build_prompt(ddl_list, docs, examples, question)
+sql = llm.submit_prompt(prompt)
+```
+
+**v2.0 Approach:**
+```python
+# Automatic context enhancement
+# LlmContextEnhancer searches memory automatically
+# System prompt includes memory tool instructions
+# LLM decides when to search/use context
+response = await agent.send_message(user, question)
+```
+
+### Why v2.0 is Better
+
+1. **Security**: No arbitrary code execution - all operations are sandboxed tools
+2. **Observability**: Structured tool calls provide clear audit trails
+3. **Extensibility**: Adding new capabilities is just adding a new tool
+4. **Error Recovery**: ToolResult provides structured error information
+5. **User Control**: Fine-grained permissions per user per tool
+6. **Memory**: Built-in semantic memory with vector search
+7. **Context**: Automatic context enhancement based on conversation
+
+---
+
