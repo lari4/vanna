@@ -385,3 +385,130 @@ packages: List[str] = Field(
 
 ---
 
+## Legacy Prompts (v1.x)
+
+These prompts are from Vanna v1.x and are maintained for backward compatibility. They use a different architecture where the LLM is prompted to generate SQL and visualization code directly, rather than using the v2.0 tool-based approach.
+
+### 21. Legacy SQL Generation System Prompt
+
+**Location:** `src/vanna/legacy/base/base.py:620-623`
+
+**Purpose:** This is the main system prompt for Vanna v1.x SQL generation. It establishes the LLM's role as a SQL expert and sets the expectation for response formatting. This prompt is more directive than the v2.0 prompts, explicitly constraining the LLM to only respond based on provided context.
+
+**Code:**
+```python
+initial_prompt = (
+    f"You are a {self.dialect} expert. "
+    + "Please help to generate a SQL query to answer the question. Your response should ONLY be based on the given context and follow the response guidelines and format instructions. "
+)
+```
+
+---
+
+### 22. Legacy SQL Generation Response Guidelines
+
+**Location:** `src/vanna/legacy/base/base.py:636-644`
+
+**Purpose:** These detailed guidelines instruct the LLM on how to handle various scenarios when generating SQL. The guidelines cover sufficient context, partial context, insufficient context, table selection, answer reuse, and SQL compliance. This is a comprehensive set of rules that guide the LLM's behavior in the legacy system.
+
+**Code:**
+```python
+initial_prompt += (
+    "===Response Guidelines \n"
+    "1. If the provided context is sufficient, please generate a valid SQL query without any explanations for the question. \n"
+    "2. If the provided context is almost sufficient but requires knowledge of a specific string in a particular column, please generate an intermediate SQL query to find the distinct strings in that column. Prepend the query with a comment saying intermediate_sql \n"
+    "3. If the provided context is insufficient, please explain why it can't be generated. \n"
+    "4. Please use the most relevant table(s). \n"
+    "5. If the question has been asked and answered before, please repeat the answer exactly as it was given before. \n"
+    f"6. Ensure that the output SQL is {self.dialect}-compliant and executable, and free of syntax errors. \n"
+)
+```
+
+**Key Features:**
+- **Intermediate SQL**: Guideline #2 enables a two-step workflow where the LLM can first query for distinct values before generating the final SQL
+- **Context Handling**: Guidelines explicitly handle cases of sufficient, partial, and insufficient context
+- **Consistency**: Guideline #5 encourages repeating previous answers for similar questions
+- **Dialect Compliance**: Ensures SQL is valid for the specific database dialect (MySQL, PostgreSQL, etc.)
+
+---
+
+### 23. Legacy Plotly Code Generation System Prompt
+
+**Location:** `src/vanna/legacy/base/base.py:758-765`
+
+**Purpose:** This system prompt provides context about the DataFrame that needs to be visualized, including the original question, the SQL query used, and DataFrame metadata. It sets up the context for the LLM to generate appropriate visualization code.
+
+**Code:**
+```python
+if question is not None:
+    system_msg = f"The following is a pandas DataFrame that contains the results of the query that answers the question the user asked: '{question}'"
+else:
+    system_msg = "The following is a pandas DataFrame "
+
+if sql is not None:
+    system_msg += f"\n\nThe DataFrame was produced using this query: {sql}\n\n"
+
+system_msg += f"The following is information about the resulting pandas DataFrame 'df': \n{df_metadata}"
+```
+
+---
+
+### 24. Legacy Plotly Code Generation User Prompt
+
+**Location:** `src/vanna/legacy/base/base.py:769-771`
+
+**Purpose:** This prompt instructs the LLM to generate Plotly visualization code for the DataFrame. It provides specific constraints: use Plotly, assume data is in 'df', use Indicator for single values, and return only code without explanations. This prompt was used in v1.x before the system switched to heuristic-based chart generation in v2.0.
+
+**Code:**
+```python
+self.user_message(
+    "Can you generate the Python plotly code to chart the results of the dataframe? Assume the data is in a pandas dataframe called 'df'. If there is only one value in the dataframe, use an Indicator. Respond with only Python code. Do not answer with any explanations -- just the code."
+)
+```
+
+---
+
+### 25. Legacy Question Generation from SQL Prompt
+
+**Location:** `src/vanna/legacy/base/base.py:717-718`
+
+**Purpose:** This prompt performs the reverse operation of SQL generation - it takes SQL code and generates a natural language question that the SQL answers. This is useful for documentation, creating training examples, or helping users understand what a query does. The prompt explicitly instructs not to reference table names to keep questions business-focused rather than technical.
+
+**Code:**
+```python
+self.system_message(
+    "The user will give you SQL and you will try to guess what the business question this query is answering. Return just the question without any additional explanation. Do not reference the table name in the question."
+)
+```
+
+**Example Usage:**
+```
+Input SQL: SELECT customer_name, SUM(revenue) FROM sales GROUP BY customer_name ORDER BY SUM(revenue) DESC LIMIT 5
+Output: Who are the top 5 customers by revenue?
+```
+
+---
+
+### 26. Legacy Follow-up Questions Generation Prompt
+
+**Location:** `src/vanna/legacy/base/base.py:684-686`
+
+**Purpose:** This prompt generates follow-up questions that a user might naturally ask after seeing query results. This enhances the user experience by suggesting relevant next steps and helps guide data exploration. The prompt explicitly requests just the questions without explanations for clean, parseable output.
+
+**Code:**
+```python
+self.user_message(
+    "Generate a list of followup questions that the user might ask about this data. Respond with a list of questions, one per line. Do not answer with any explanations -- just the questions."
+)
+```
+
+**Example Output:**
+```
+What is the breakdown by region?
+How have these numbers changed over time?
+Who are the individual customers in the top segment?
+What products are they purchasing?
+```
+
+---
+
