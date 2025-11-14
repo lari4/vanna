@@ -290,3 +290,252 @@ For "Show top 5 customers":
 
 ---
 
+## Memory-Enhanced Query Pipeline
+
+This pipeline shows how the agent uses memory tools to search for and reuse previous successful query patterns, then saves new successful patterns for future use.
+
+### Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         USER SENDS MESSAGE                          │
+│                "What are the top revenue customers?"                │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│            [Steps 1-6: Same as Standard Pipeline]                   │
+│                                                                     │
+│  System prompt NOW includes memory workflow (Prompts #2-5):        │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │ • BEFORE executing any tool (run_sql, visualize_data),     │  │
+│  │   you MUST first call search_saved_correct_tool_uses       │  │
+│  │                                                             │  │
+│  │ • AFTER successfully executing a tool, you MUST call       │  │
+│  │   save_question_tool_args to save the pattern              │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 7. FIRST LLM RESPONSE                               │
+│                                                                     │
+│  LLM sees system prompt with memory instructions                   │
+│  LLM follows workflow: search memory BEFORE running SQL            │
+│                                                                     │
+│  LLM response includes tool_call:                                  │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │ {                                                           │  │
+│  │   "name": "search_saved_correct_tool_uses",                 │  │
+│  │   "arguments": {                                            │  │
+│  │     "question": "What are the top revenue customers?",      │  │
+│  │     "limit": 10                                             │  │
+│  │   }                                                         │  │
+│  │ }                                                           │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 8. SEARCH MEMORY TOOL EXECUTION                     │
+│                                                                     │
+│  Tool: search_saved_correct_tool_uses                              │
+│  Input: {"question": "What are the top revenue customers?"}        │
+│  Process:                                                          │
+│    1. Generate embedding for question (via AgentMemory)            │
+│    2. Vector similarity search in memory database                  │
+│    3. Retrieve similar past tool usage patterns                    │
+│    4. Format results (Prompt #13)                                  │
+│                                                                     │
+│  Output (example with matches):                                    │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │ Found 2 similar tool usage pattern(s):                     │  │
+│  │                                                             │  │
+│  │ 1. run_sql (similarity: 0.92)                               │  │
+│  │    Question: What are the top 5 customers by revenue?      │  │
+│  │    Args: {                                                  │  │
+│  │      "sql": "SELECT customer_name, SUM(revenue)            │  │
+│  │               FROM sales GROUP BY customer_name             │  │
+│  │               ORDER BY SUM(revenue) DESC LIMIT 5"           │  │
+│  │    }                                                        │  │
+│  │                                                             │  │
+│  │ 2. run_sql (similarity: 0.85)                               │  │
+│  │    Question: Show me highest spending customers            │  │
+│  │    Args: {                                                  │  │
+│  │      "sql": "SELECT customer_id, SUM(amount)               │  │
+│  │               FROM orders GROUP BY customer_id              │  │
+│  │               ORDER BY SUM(amount) DESC LIMIT 10"           │  │
+│  │    }                                                        │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  UI Component: StatusBarUpdate or CardComponent (based on user)    │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 9. LLM ANALYZES MEMORY RESULTS                      │
+│                                                                     │
+│  LLM receives formatted memory results (Prompt #13)                │
+│  LLM adapts one of the similar patterns to current question        │
+│                                                                     │
+│  LLM response includes tool_call:                                  │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │ {                                                           │  │
+│  │   "name": "run_sql",                                        │  │
+│  │   "arguments": {                                            │  │
+│  │     "sql": "SELECT customer_name, SUM(revenue) as total    │  │
+│  │             FROM sales GROUP BY customer_name               │  │
+│  │             ORDER BY total DESC LIMIT 10"                   │  │
+│  │   }                                                         │  │
+│  │ }                                                           │  │
+│  │                                                             │  │
+│  │ Note: LLM adapted the pattern from memory (changed LIMIT)  │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 10. SQL EXECUTION                                   │
+│                                                                     │
+│  [Same as Standard Pipeline step 10]                               │
+│  SQL executes, results saved to CSV                                │
+│  Result returned to LLM with filename                              │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 11. LLM DECIDES TO SAVE PATTERN                     │
+│                                                                     │
+│  LLM sees:                                                         │
+│    - SQL execution was successful                                  │
+│    - System prompt says: "AFTER successfully executing a tool,     │
+│      you MUST call save_question_tool_args"                        │
+│                                                                     │
+│  LLM response includes tool_call:                                  │
+│  ┌─────────────────────────────────────────────────────────────┐  │
+│  │ {                                                           │  │
+│  │   "name": "save_question_tool_args",                        │  │
+│  │   "arguments": {                                            │  │
+│  │     "question": "What are the top revenue customers?",      │  │
+│  │     "tool_name": "run_sql",                                 │  │
+│  │     "args": {                                               │  │
+│  │       "sql": "SELECT customer_name, SUM(revenue)...DESC"    │  │
+│  │     }                                                        │  │
+│  │   }                                                         │  │
+│  │ }                                                           │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 12. SAVE MEMORY TOOL EXECUTION                      │
+│                                                                     │
+│  Tool: save_question_tool_args                                     │
+│  Input: {question, tool_name, args} from above                     │
+│  Process:                                                          │
+│    1. Generate embedding for question                              │
+│    2. Create ToolUsageMemory object                                │
+│    3. Store in vector database with metadata                       │
+│    4. Associate with user context                                  │
+│                                                                     │
+│  Output:                                                           │
+│    result_for_llm: "Successfully saved usage pattern for           │
+│                     'run_sql' tool"                                │
+│    ui_component: StatusBarUpdateComponent (success)                │
+│                                                                     │
+│  Memory now contains: Question → Tool → Args mapping               │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                 13. CONTINUE WITH VISUALIZATION                     │
+│                                                                     │
+│  [Same as Standard Pipeline]                                       │
+│  - visualize_data called                                           │
+│  - Chart generated                                                 │
+│  - Final response from LLM                                         │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Differences from Standard Pipeline
+
+1. **Additional Tool Calls**: Memory-enhanced pipeline adds 2 extra tool calls:
+   - `search_saved_correct_tool_uses` at the beginning
+   - `save_question_tool_args` after successful execution
+
+2. **Conversation Length**: Typical message count is 8-10 messages instead of 6:
+   - +2 for memory search (assistant tool_call + tool result)
+   - +2 for memory save (assistant tool_call + tool result)
+
+3. **Prompt Influence**: System prompt (Prompts #2-5) explicitly guides the agent to use memory workflow
+
+4. **Performance Impact**:
+   - **First Time**: Slightly slower (search returns no results, extra tool call overhead)
+   - **Subsequent Times**: Much faster (LLM can adapt existing patterns instead of generating from scratch)
+
+### Memory Search Result Variations
+
+**Case 1: No Similar Patterns Found**
+```
+Tool result (Prompt #14):
+"No similar tool usage patterns found for this question."
+
+LLM behavior: Generates SQL from scratch using schema knowledge
+```
+
+**Case 2: Perfect Match Found**
+```
+Tool result (Prompt #13):
+"Found 1 similar tool usage pattern(s):
+1. run_sql (similarity: 0.98)
+   Question: What are the top revenue customers?
+   Args: {sql: '...exact same query...'}
+
+LLM behavior: Reuses exact same SQL, minimal modification
+```
+
+**Case 3: Similar Patterns Found**
+```
+Tool result (Prompt #13):
+"Found 2 similar tool usage pattern(s):
+1. run_sql (similarity: 0.85)...
+2. run_sql (similarity: 0.82)...
+
+LLM behavior: Adapts pattern to current question, modifies SQL accordingly
+```
+
+### Data Flow for Memory
+
+```
+Question Text
+     │
+     ▼
+[Embedding Model] ─────► Vector (e.g., 1536 dimensions)
+     │
+     ▼
+[Vector DB Search] ─────► Similar vectors with cosine similarity
+     │
+     ▼
+[Memory Retrieval] ─────► ToolUsageMemory objects
+     │
+     ▼
+[Format Results] ───────► Prompt #13 formatted text
+     │
+     ▼
+[LLM Processing] ───────► Adapted SQL query
+```
+
+### Prompts Used
+
+| Stage | Prompt | Purpose |
+|-------|--------|---------|
+| System Prompt | Prompts #2-3 | Search before execution instruction |
+| System Prompt | Prompt #4 | Example workflow |
+| System Prompt | Prompt #5 | Save after success instruction |
+| Tool Description | Prompt #11 | save_question_tool_args description |
+| Tool Description | Prompt #12 | search_saved_correct_tool_uses description |
+| Tool Result | Prompt #13 | Memory search results formatting |
+| Tool Result | Prompt #14 | No results message |
+
+---
+
