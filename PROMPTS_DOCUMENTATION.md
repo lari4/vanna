@@ -153,3 +153,209 @@ The following domain knowledge and context from prior interactions may be releva
 
 ---
 
+## Tool Description Prompts
+
+These prompts are embedded in tool descriptions and field descriptions that guide the LLM on how to use each tool effectively.
+
+### 7. SQL Query Execution Tool Description
+
+**Location:** `src/vanna/tools/run_sql.py:50`
+
+**Purpose:** This is the tool description that tells the LLM what the `run_sql` tool does. It's a simple, concise description that appears in the system prompt when the tool is available.
+
+**Code:**
+```python
+"Execute SQL queries against the configured database"
+```
+
+---
+
+### 8. SQL Results Truncation Guidance
+
+**Location:** `src/vanna/tools/run_sql.py:103-104`
+
+**Purpose:** This prompt guides the LLM on how to handle large query results. It instructs the agent not to waste tokens summarizing large datasets and instead directs it to immediately call the visualization tool. This prevents unnecessary verbosity and ensures a smooth workflow from query to visualization.
+
+**Code:**
+```python
+"\n(Results truncated to 1000 characters. FOR LARGE RESULTS YOU DO NOT NEED TO SUMMARIZE THESE RESULTS OR PROVIDE OBSERVATIONS. THE NEXT STEP SHOULD BE A VISUALIZE_DATA CALL)"
+```
+
+---
+
+### 9. SQL Results Filename Reminder
+
+**Location:** `src/vanna/tools/run_sql.py:106`
+
+**Purpose:** This prompt emphasizes the filename that should be used when calling the visualization tool. The prominent formatting with bold text and "IMPORTANT" helps ensure the LLM uses the correct filename parameter when chaining tools together.
+
+**Code:**
+```python
+f"\n\nResults saved to file: {filename}\n\n**IMPORTANT: FOR VISUALIZE_DATA USE FILENAME: {filename}**"
+```
+
+---
+
+### 10. Data Visualization Tool Description
+
+**Location:** `src/vanna/tools/visualize_data.py:55`
+
+**Purpose:** This tool description explains that the visualization tool automatically selects appropriate chart types based on data characteristics. This sets the expectation that the LLM doesn't need to specify chart type - the system will intelligently choose the best visualization.
+
+**Code:**
+```python
+"Create a visualization from a CSV file. The tool automatically selects an appropriate chart type based on the data."
+```
+
+---
+
+### 11. Save Question-Tool-Args Memory Tool Description
+
+**Location:** `src/vanna/tools/agent_memory.py:69-71`
+
+**Purpose:** This description explains the purpose of the memory saving tool, indicating it's for storing successful patterns for future reuse.
+
+**Code:**
+```python
+"Save a successful question-tool-argument combination for future reference"
+```
+
+---
+
+### 12. Search Saved Tool Uses Description
+
+**Location:** `src/vanna/tools/agent_memory.py:129`
+
+**Purpose:** This description explains that the search tool finds similar past tool usage patterns based on question similarity, enabling the agent to leverage previous successful executions.
+
+**Code:**
+```python
+"Search for similar tool usage patterns based on a question"
+```
+
+---
+
+### 13. Memory Search Results Formatting
+
+**Location:** `src/vanna/tools/agent_memory.py:194-199`
+
+**Purpose:** This is a template for how memory search results are formatted and returned to the LLM. It provides a structured format showing the tool name, similarity score, original question, and arguments used. This helps the LLM understand what worked previously and apply similar patterns.
+
+**Code:**
+```python
+f"Found {len(results)} similar tool usage pattern(s):\n\n"
+
+for i, result in enumerate(results, 1):
+    memory = result.memory
+    results_text += f"{i}. {memory.tool_name} (similarity: {result.similarity_score:.2f})\n"
+    results_text += f"   Question: {memory.question}\n"
+    results_text += f"   Args: {memory.args}\n\n"
+```
+
+**Example Output:**
+```
+Found 2 similar tool usage pattern(s):
+
+1. run_sql (similarity: 0.92)
+   Question: What are the top 5 customers by revenue?
+   Args: {'sql': 'SELECT customer_name, SUM(revenue) as total FROM sales GROUP BY customer_name ORDER BY total DESC LIMIT 5'}
+
+2. run_sql (similarity: 0.85)
+   Question: Show me the highest spending customers
+   Args: {'sql': 'SELECT customer_id, SUM(amount) FROM orders GROUP BY customer_id ORDER BY SUM(amount) DESC LIMIT 10'}
+```
+
+---
+
+### 14. No Memory Results Message
+
+**Location:** `src/vanna/tools/agent_memory.py:148-150`
+
+**Purpose:** This message informs the LLM when no similar patterns are found in memory, allowing it to proceed with its own approach.
+
+**Code:**
+```python
+"No similar tool usage patterns found for this question."
+```
+
+---
+
+### 15. Save Text Memory Tool Description
+
+**Location:** `src/vanna/tools/agent_memory.py:278`
+
+**Purpose:** This description explains the free-form text memory tool, indicating it's for saving important insights and context that don't fit the structured tool usage memory pattern.
+
+**Code:**
+```python
+"Save free-form text memory for important insights, observations, or context"
+```
+
+---
+
+### 16. Python File Execution Tool Description
+
+**Location:** `src/vanna/tools/python.py:54`
+
+**Purpose:** This description explains that the tool executes Python files using the workspace interpreter, making it clear this runs in the user's environment.
+
+**Code:**
+```python
+"Execute a Python file using the workspace interpreter"
+```
+
+---
+
+### 17. Python File Argument Field Description
+
+**Location:** `src/vanna/tools/python.py:28-34`
+
+**Purpose:** These field descriptions guide the LLM on what parameters are available for running Python files, including optional command-line arguments and timeout settings.
+
+**Code:**
+```python
+filename: str = Field(
+    description="Python file to execute (relative to the workspace root)"
+)
+arguments: Sequence[str] = Field(
+    default_factory=list,
+    description="Optional arguments to pass to the Python script",
+)
+timeout_seconds: Optional[float] = Field(
+    default=None,
+    ge=0,
+    description="Optional timeout for the command in seconds",
+)
+```
+
+---
+
+### 18. Pip Install Tool Description
+
+**Location:** `src/vanna/tools/python.py:119`
+
+**Purpose:** This description explains the pip package installation tool, which allows the agent to install Python dependencies as needed.
+
+**Code:**
+```python
+"Install Python packages using pip"
+```
+
+---
+
+### 19. Pip Install Packages Field Description
+
+**Location:** `src/vanna/tools/python.py:89-91`
+
+**Purpose:** This field description guides the LLM on how to specify packages for installation, including support for version specifiers.
+
+**Code:**
+```python
+packages: List[str] = Field(
+    description="Packages (with optional specifiers) to install",
+    min_length=1
+)
+```
+
+---
+
